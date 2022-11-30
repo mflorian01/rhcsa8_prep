@@ -1,0 +1,12 @@
+.vagrant/
+disk-0-1.vdi/
+*.retry.yml/
+..DS_Store
+.DS_Store
+disk-0-1.vdi
+disk-0-2.vdi
+CONTROLLER_CREATED.txt
+.github/ISSUE_TEMPLATE/feature_request.md
+.github/ISSUE_TEMPLATE/bug_report.md
+.github/FUNDING.yml
+LICENSE
