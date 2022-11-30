@@ -1,0 +1,432 @@
+VAGRANTFILE_API_VERSION = "2"
+VAGRANT_DISABLE_VBOXSYMLINKCREATE = "1"
+file_to_disk1 = './disk-0-1.vdi'
+file_to_disk2 = './disk-0-2.vdi'
+file_to_disk3 = './disk-0-3.vdi'
+$script = <<-'SCRIPT'
+result=$(awk '/^PasswordAuthentication/ { print $2 }' /etc/ssh/sshd_config)
+if [[ ${result} == "no" ]]; then
+    sed -i '/^PasswordAuthentication/s/no/yes/g' /etc/ssh/sshd_config
+    systemctl reload sshd
+fi
+SCRIPT
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+  # Use same SSH key for each machine
+  config.ssh.insert_key = false
+  config.vm.box_check_update = false
+
+  # Server 2 Configuration
+  config.vm.define "server2" do |server2|
+    server2.vm.box = "rdbreak/rhel8node"
+    # server2.vm.hostname = "server2.eight.example.com"
+    server2.vm.network "private_network", ip: "192.168.55.151"
+    server2.vm.network "private_network", ip: "192.168.55.175"
+    server2.vm.network "private_network", ip: "192.168.55.176"
+    #server2.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: ".git/", rsync__exclude: "*.vdi"
+    server2.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: [".git/", "disk-0-1.vdi", "disk-0-2.vdi", ".github"]
+    server2.vm.provider "virtualbox" do |server2|
+      #server2.customize ['storagectl', :id, '--name', 'SATA Controller', '--add', 'sata', '--portcount', 2]
+
+      unless File.exist?(file_to_disk1)
+        server2.customize ['createhd', '--filename', file_to_disk1, '--variant', 'Standard', '--size', 4 * 1024]
+      end
+
+      unless File.exist?(file_to_disk2)
+        server2.customize ['createhd', '--filename', file_to_disk2, '--variant', 'Standard', '--size', 4 * 1024]
+      end
+
+      server2.memory = "2048"
+      server2.customize ['storageattach', :id,  '--storagectl', 'SATA Controller', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', file_to_disk1]
+      server2.customize ['storageattach', :id,  '--storagectl', 'SATA Controller', '--port', 2, '--device', 0, '--type', 'hdd', '--medium', file_to_disk2]
+    end
+
+    server2.vm.provision "shell", inline: <<-SHELL
+    yes|  mkfs.ext4 -L extradisk1 /dev/sdb
+    SHELL
+    server2.vm.provision "shell", inline: <<-SHELL
+    mkdir /extradisk1 ; echo \'LABEL=extradisk1 /extradisk1 ext4 defaults 0 0\' >> /etc/fstab
+    SHELL
+    server2.vm.provision "shell", inline: <<-SHELL
+    yes|  mkfs.ext4 -L extradisk2 /dev/sdc
+    SHELL
+    server2.vm.provision "shell", inline: <<-SHELL
+    mkdir /extradisk2 ; echo \'LABEL=extradisk2 /extradisk2 ext4 defaults 0 0\' >> /etc/fstab
+    SHELL
+
+    server2.vm.provision :ansible_local do |ansible|
+      ansible.playbook = "/vagrant/playbooks/server2.yml"
+      ansible.install = false
+      ansible.compatibility_mode = "2.0"
+      ansible.inventory_path = "/vagrant/inventory"
+      ansible.config_file = "/vagrant/ansible.cfg"
+      ansible.limit = "all"
+    end
+    server2.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+
+  # Repo Configuration
+  config.vm.define "repo" do |repo|
+    repo.vm.box = "rdbreak/rhel8repo"
+    repo.vm.hostname = "repo.example.com"
+    repo.vm.provision :shell, :inline => "sudo rm -f /EMPTY;", run: "always"
+    repo.vm.provision :shell, :inline => "sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config; sudo systemctl restart sshd;", run: "always"
+    repo.vm.provision :shell, :inline => "yum install https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm -y; sudo yum install -y sshpass python3-pip python3-devel httpd sshpass vsftpd createrepo", run: "always"
+    repo.vm.provision :shell, :inline => " python3 -m pip install -U pip ; python3 -m pip install pexpect; python3 -m pip install ansible", run: "always"
+    repo.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: [".git/", "disk-0-1.vdi", "disk-0-2.vdi", ".github"]
+    repo.vm.network "private_network", ip: "192.168.55.149"
+
+    repo.vm.provider "virtualbox" do |repo|
+      repo.memory = "1024"
+      # repo.memory = "2048"
+      repo.name = "repo"
+      repo.cpus = 1
+    end
+  end
+
+  # Server 1 Configuration
+  config.vm.define "server1" do |server1|
+    server1.vm.box = "rdbreak/rhel8node"
+    server1.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: [".git/", "disk-0-1.vdi", "disk-0-2.vdi", ".github"]
+    # server1.vm.hostname = "server1.eight.example.com"
+    server1.vm.network "private_network", ip: "192.168.55.150"
+    server1.vm.provider :virtualbox do |server1|
+      server1.customize ['modifyvm', :id,'--memory', '2048']
+    end
+
+    server1.vm.provision :ansible_local do |ansible|
+      ansible.playbook = "/vagrant/playbooks/master.yml"
+      ansible.install = false
+      ansible.compatibility_mode = "2.0"
+      ansible.inventory_path = "/vagrant/inventory"
+      ansible.config_file = "/vagrant/ansible.cfg"
+      ansible.limit = "all"
+    end
+    server1.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+
+  # Server Test Configuration
+  config.vm.define "testserver1" do |test|
+    test.vm.box = "rdbreak/rhel8node"
+    test.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: [".git/", "*.vdi", ".github"]
+    # test.vm.hostname = "test.eight.example.com"
+    test.vm.network "private_network", ip: "192.168.55.160"
+    test.vm.provider :virtualbox do |test|
+      test.customize ['modifyvm', :id,'--memory', '1024']
+      # test.customize ['storagectl', :id, '--name', 'SATA Controller', '--add', 'sata', '--portcount', 1]
+      unless File.exist?(file_to_disk3)
+        test.customize ['createhd', '--filename', file_to_disk3, '--variant', 'Standard', '--size', 4 * 1024]
+      end
+      test.customize ['storageattach', :id,  '--storagectl', 'SATA Controller', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', file_to_disk3]
+    end
+
+    test.vm.provision :ansible_local do |ansible|
+      ansible.playbook = "/vagrant/playbooks/testserver1.yml"
+      ansible.install = false
+      ansible.compatibility_mode = "2.0"
+      ansible.inventory_path = "/vagrant/inventory"
+      ansible.config_file = "/vagrant/ansible.cfg"
+      ansible.limit = "all"
+    end
+    # test.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+
+  # RHEL7
+  config.vm.define "rhel7" do |rhel7|
+    rhel7.vm.box = "generic/rhel7"
+    rhel7.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: [".git/", "*.vdi", ".github"]
+    # rhel7.vm.hostname = "rhel7.eight.example.com"
+    rhel7.vm.network "private_network", ip: "192.168.55.161"
+    rhel7.vm.provider :virtualbox do |rhel7|
+      rhel7.customize ['modifyvm', :id,'--memory', '1024']
+      # rhel7.customize ['storagectl', :id, '--name', 'SATA Controller', '--add', 'sata', '--portcount', 1]
+      unless File.exist?(file_to_disk3)
+        rhel7.customize ['createhd', '--filename', file_to_disk3, '--variant', 'Standard', '--size', 4 * 1024]
+      end
+      rhel7.customize ['storageattach', :id,  '--storagectl', 'SATA Controller', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', file_to_disk3]
+    end
+
+    rhel7.vm.provision :ansible_local do |ansible|
+      ansible.playbook = "/vagrant/playbooks/rhel7.yml"
+      ansible.install = false
+      ansible.compatibility_mode = "2.0"
+      ansible.inventory_path = "/vagrant/inventory"
+      ansible.config_file = "/vagrant/ansible.cfg"
+      ansible.limit = "all"
+    end
+    # rhel7.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+    
+  # RHEL8
+  config.vm.define "rhel8client" do |rhel8client|
+    rhel8client.vm.box = "rdbreak/rhel8node"
+    rhel8client.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: [".git/", "*.vdi", ".github"]
+    # rhel8client.vm.hostname = "rhel8client.eight.example.com"
+    rhel8client.vm.network "private_network", ip: "192.168.55.162"
+    rhel8client.vm.provider :virtualbox do |rhel8client|
+      rhel8client.customize ['modifyvm', :id,'--memory', '1024']
+      # rhel8client.customize ['storagectl', :id, '--name', 'SATA Controller', '--add', 'sata', '--portcount', 1]
+      # unless File.exist?(file_to_disk3)
+      #   rhel8client.customize ['createhd', '--filename', file_to_disk3, '--variant', 'Standard', '--size', 4 * 1024]
+      # end
+      # rhel8client.customize ['storageattach', :id,  '--storagectl', 'SATA Controller', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', file_to_disk3]
+    end
+    
+    rhel8client.vm.provision :ansible_local do |ansible|
+      ansible.playbook = "/vagrant/playbooks/rhel8client.yml"
+      ansible.install = false
+      ansible.compatibility_mode = "2.0"
+      ansible.inventory_path = "/vagrant/inventory"
+      ansible.config_file = "/vagrant/ansible.cfg"
+      ansible.limit = "all"
+    end
+    # rhel8client.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+  
+  # LDAP client Centos7
+  config.vm.define "ldapclient7" do |ldapclient7|
+    ldapclient7.vm.box = "generic/centos7"
+    ldapclient7.vm.synced_folder "./vagrant", "/vagrant", type: "rsync", rsync__exclude: [".git/", "*.vdi", ".github"]
+    ldapclient7.vm.provision :shell, :inline => "yum -y install ansible", run: "always"
+    ldapclient7.vm.provision :shell, :inline => $script, run: "always"
+    ldapclient7.vm.hostname = "ldapclient7.example.com"
+    ldapclient7.vm.network "private_network", ip: "192.168.55.163"
+    ldapclient7.vm.provider :virtualbox do |ldapclient7|
+      ldapclient7.customize ['modifyvm', :id,'--memory', '1024']
+    end
+
+    ldapclient7.vm.provision :ansible_local do |ansible|
+      ansible.playbook = "/vagrant/playbooks/ldapclient7.yml"
+      ansible.install = false
+      ansible.compatibility_mode = "2.0"
+      ansible.inventory_path = "/vagrant/inventory"
+      ansible.config_file = "/vagrant/ansible.cfg"
+      ansible.limit = "all"
+    end
+    # ldapclient7.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+
+  # CentOS7 ldap
+  config.vm.define "ldapserver" do |ldapserver|
+    ldapserver.vm.box = "ihlchip/ldap-local"
+    #ldapserver.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: [".git/", "*.vdi", ".github"]
+    ldapserver.vm.synced_folder "./vagrant", "/vagrant", type: "virtualbox"
+    ldapserver.vm.hostname = "ldapserver.example.com"
+    ldapserver.vm.network "private_network", ip: "192.168.55.164"
+    ldapserver.vm.provider :virtualbox do |ldapserver|
+      ldapserver.customize ['modifyvm', :id,'--memory', '1024']
+      ldapserver.name = "ldapserver"
+      ldapserver.cpus = 1
+    end
+
+    # ldapserver.vm.provision :ansible_local do |ansible|
+    #   ansible.playbook = "/vagrant/playbooks/ldapserver.yml"
+    #   ansible.install = false
+    #   ansible.compatibility_mode = "2.0"
+    #   ansible.inventory_path = "/vagrant/inventory"
+    #   ansible.config_file = "/vagrant/ansible.cfg"
+    #   ansible.limit = "all"
+    # end
+    # ldapserver.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+
+  # RHEL8 ldap server
+  # This is working as a client
+  config.vm.define "ldapserver8" do |ldapserver8|
+    ldapserver8.vm.box = "generic/rocky8"
+    ldapserver8.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: [".git/", "*.vdi", ".github"]
+    # ldapserver8.vm.hostname = "ldapserver8.eight.example.com"
+    ldapserver8.vm.network "private_network", ip: "192.168.55.165"
+    ldapserver8.vm.provider :virtualbox do |ldapserver8|
+      ldapserver8.customize ['modifyvm', :id,'--memory', '1024']
+      # ldapserver8.customize ['storagectl', :id, '--name', 'SATA Controller', '--add', 'sata', '--portcount', 1]
+      # unless File.exist?(file_to_disk3)
+      #   ldapserver8.customize ['createhd', '--filename', file_to_disk3, '--variant', 'Standard', '--size', 4 * 1024]
+      # end
+      # ldapserver8.customize ['storageattach', :id,  '--storagectl', 'SATA Controller', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', file_to_disk3]
+    end
+    
+    ldapserver8.vm.provision :ansible_local do |ansible|
+      ansible.playbook = "/vagrant/playbooks/ldapserver8.yml"
+      ansible.install = false
+      ansible.compatibility_mode = "2.0"
+      ansible.inventory_path = "/vagrant/inventory"
+      ansible.config_file = "/vagrant/ansible.cfg"
+      ansible.limit = "all"
+    end
+    # ldapserver8.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+
+  # Rocky ldap server
+  config.vm.define "ldapserverrocky8" do |ldapserverrocky8|
+    ldapserverrocky8.vm.box = "generic/rocky8"
+    ldapserverrocky8.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: [".git/", "*.vdi", ".github"]
+    ldapserverrocky8.vm.hostname = "ldapserverrocky8.example.com"
+    ldapserverrocky8.vm.network "private_network", ip: "192.168.55.166"
+    ldapserverrocky8.vm.provider :virtualbox do |ldapserverrocky8|
+      ldapserverrocky8.customize ['modifyvm', :id,'--memory', '1024']
+      # ldapserverrocky8.customize ['storagectl', :id, '--name', 'SATA Controller', '--add', 'sata', '--portcount', 1]
+      # unless File.exist?(file_to_disk3)
+      #   ldapserverrocky8.customize ['createhd', '--filename', file_to_disk3, '--variant', 'Standard', '--size', 4 * 1024]
+      # end
+      # ldapserverrocky8.customize ['storageattach', :id,  '--storagectl', 'SATA Controller', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', file_to_disk3]
+    end
+    
+    # ldapserverrocky8.vm.provision :ansible_local do |ansible|
+    #   ansible.playbook = "/vagrant/playbooks/ldapserverrocky8.yml"
+    #   ansible.install = false
+    #   ansible.compatibility_mode = "2.0"
+    #   ansible.inventory_path = "/vagrant/inventory"
+    #   ansible.config_file = "/vagrant/ansible.cfg"
+    #   ansible.limit = "all"
+    # end
+    # ldapserverrocky8.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+
+  # CentOS7 ldap
+  config.vm.define "ldapserver2" do |ldapserver2|
+    ldapserver2.vm.box = "ihlchip/ldap-local"
+    ldapserver2.vm.provision :shell, :inline => "sed -i '/^proxy=/d' /etc/yum.conf", run: "always"
+    ldapserver2.vm.provision :shell, :inline => "yum -y install python3 vim sshpass", run: "always"
+    ldapserver2.vm.provision :shell, :inline => "python3 -m pip install --upgrade pip", run: "always"
+    ldapserver2.vm.provision :shell, :inline => "python3 -m pip install ansible", run: "always"
+    ldapserver2.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: [".git/", "*.vdi", ".github"]
+    ldapserver2.vm.hostname = "ldapserver2.example.com"
+    ldapserver2.vm.network "private_network", ip: "192.168.55.167"
+    ldapserver2.vm.provider :virtualbox do |ldapserver2|
+      ldapserver2.customize ['modifyvm', :id,'--memory', '1024']
+    end
+
+    ldapserver2.vm.provision :ansible_local do |ansible|
+      ansible.playbook = "/vagrant/playbooks/ldapserver2.yml"
+      ansible.install = false
+      ansible.compatibility_mode = "2.0"
+      ansible.inventory_path = "/vagrant/inventory"
+      ansible.config_file = "/vagrant/ansible.cfg"
+      ansible.limit = "all"
+    end
+    # ldapserver2.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+
+  # CentOS7 ldap TEST
+  config.vm.define "ldapserver3" do |ldapserver3|
+    ldapserver3.vm.box = "rockylinux/8"
+    ldapserver3.vm.provision :shell, :inline => "sed -i '/^proxy=/d' /etc/yum.conf", run: "always"
+    ldapserver3.vm.provision :shell, :inline => "yum -y install python3 vim sshpass", run: "always"
+    ldapserver3.vm.provision :shell, :inline => "python3 -m pip install --upgrade pip", run: "always"
+    ldapserver3.vm.provision :shell, :inline => "python3 -m pip install ansible", run: "always"
+    ldapserver3.vm.synced_folder "./vagrant", "/vagrant", type: "virtualbox"
+    ldapserver3.vm.hostname = "ldapserver3.example.com"
+    ldapserver3.vm.network "private_network", ip: "192.168.55.168"
+    ldapserver3.vm.disk :dvd, name: "installer", file: "C:\Program Files\Oracle\VirtualBox\VBoxGuestAdditions.iso"
+    ldapserver3.vm.provider :virtualbox do |ldapserver3|
+      ldapserver3.customize ['modifyvm', :id,'--memory', '1024']
+    end
+
+    ldapserver3.vm.provision :ansible_local do |ansible|
+      ansible.playbook = "/vagrant/playbooks/ldapserver3.yml"
+      ansible.install = false
+      ansible.compatibility_mode = "2.0"
+      ansible.inventory_path = "/vagrant/inventory"
+      ansible.config_file = "/vagrant/ansible.cfg"
+      ansible.limit = "all"
+    end
+    # ldapserver3.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+
+  # Testing
+  config.vm.define "test" do |test|
+    test.vm.box = "generic/centos7"
+    test.vm.synced_folder "./vagrant", "/vagrant", type: "rsync", rsync__exclude: [".git/", "*.vdi", ".github"]
+    # test.vm.provision :shell, :inline => "cp -r /vagrant/* /home/vagrant/", run: "always"
+    test.vm.provision :shell, :inline => $script, run: "always"
+    test.vm.provision :shell, :inline => "yum -y install ansible", run: "always"
+    # test.vm.synced_folder "./vagrant", "/vagrant", type: "virtualbox"
+    test.vm.hostname = "test.example.com"
+    test.vm.network "private_network", ip: "192.168.55.169"
+    test.vm.provider :virtualbox do |vb|
+      vb.customize ['modifyvm', :id,'--memory', '1024']
+      # vb.linked_clone = true
+    end
+
+    test.vm.provision :ansible_local do |ansible|
+      ansible.playbook = "/vagrant/playbooks/test.yml"
+      ansible.install = false
+      ansible.compatibility_mode = "2.0"
+      ansible.inventory_path = "/vagrant/inventory"
+      ansible.config_file = "/vagrant/ansible.cfg"
+      ansible.limit = "all"
+    end
+    # test.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+
+  # LDAP server to be pushed to Vagrant
+  config.vm.define "ldap" do |ldap|
+    ldap.vm.box = "generic/centos7"
+    ldap.vm.provision :shell, :inline => $script, run: "always"
+    ldap.vm.provision :shell, :inline => "yum -y install ansible", run: "always"
+    ldap.vm.synced_folder "./vagrant", "/vagrant", type: "rsync", rsync__exclude: [".git/", "*.vdi", ".github"]
+    ldap.vm.hostname = "ldap.example.com"
+    ldap.vm.network "private_network", ip: "192.168.55.170"
+    ldap.vm.provider :virtualbox do |vb|
+      vb.customize ['modifyvm', :id,'--memory', '1024']
+      vb.linked_clone = true
+    end
+
+    ldap.vm.provision :ansible_local do |ansible|
+      ansible.playbook = "/vagrant/playbooks/ldap.yml"
+      ansible.install = false
+      ansible.compatibility_mode = "2.0"
+      ansible.inventory_path = "/vagrant/inventory"
+      ansible.config_file = "/vagrant/ansible.cfg"
+      ansible.limit = "all"
+    end
+    ldap.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+
+  # LDAP client Centos8
+  config.vm.define "ldapclient8" do |ldapclient8|
+    ldapclient8.vbguest.auto_update = false
+    ldapclient8.vm.box = "mflorian/rhel8node"
+    ldapclient8.vm.provision "file", source: "./vagrant/local.repo", destination: "/home/vagrant/local.repo", run: "always"
+    ldapclient8.vm.provision :shell, :inline => "sudo cp /home/vagrant/local.repo /etc/yum.repos.d/", run: "always"
+    ldapclient8.vm.provision :shell, :inline => "sudo rm -f /EMPTY;", run: "always"
+    # ldapclient8.vm.provision :shell, :inline => "sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config; sudo systemctl restart sshd;", run: "always"
+    ldapclient8.vm.provision :shell, :inline => "yum install https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm -y; sudo yum install -y sshpass python3-pip python3-devel httpd sshpass vsftpd createrepo", run: "always"
+    ldapclient8.vm.provision :shell, :inline => " python3 -m pip install -U pip ; python3 -m pip install pexpect; python3 -m pip install ansible", run: "always"
+    ldapclient8.vm.provision :shell, :inline => $script, run: "always"
+    # ldapclient8.vm.provision :shell, :inline => "yum -y install ansible", run: "always"
+    ldapclient8.vm.synced_folder "./vagrant", "/vagrant", type: "rsync", rsync__exclude: [".git/", "*.vdi", ".github"]
+    ldapclient8.vm.hostname = "ldapclient8.example.com"
+    ldapclient8.vm.network "private_network", ip: "192.168.55.171"
+    ldapclient8.vm.provider :virtualbox do |vb|
+      vb.customize ['modifyvm', :id,'--memory', '1024']
+      vb.name = "ldapclient8"
+      vb.cpus = 1
+    end
+
+    ldapclient8.vm.provision :ansible_local do |ansible|
+      ansible.playbook = "/vagrant/playbooks/ldapclient8.yml"
+      ansible.install = false
+      ansible.compatibility_mode = "2.0"
+      ansible.inventory_path = "/vagrant/inventory"
+      ansible.config_file = "/vagrant/ansible.cfg"
+      ansible.limit = "all"
+    end
+    # ldapclient8.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+
+  # RHEL8 copy box from rdbreak/rhel8node
+  config.vm.define "initial" do |initial|
+    initial.vbguest.auto_update = false
+    initial.vm.box = "mflorian/rhel8node"
+    initial.vm.hostname = "initial.localhost"
+    initial.vm.network "private_network", ip: "192.168.55.172"
+    initial.vm.synced_folder ".", "/vagrant", disabled: true
+    initial.vm.provider :virtualbox do |vb|
+      vb.customize ['modifyvm', :id,'--memory', '1024']
+      vb.name = "initial"
+      vb.cpus = 1
+    end
+    # initial.vm.provision :shell, :inline => "reboot", run: "always"
+  end
+end  

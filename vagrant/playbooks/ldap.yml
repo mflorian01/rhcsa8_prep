@@ -1,0 +1,249 @@
+---
+- name: Setting Up ldap
+  hosts: ldap
+  strategy: free
+  ignore_errors: true
+  gather_facts: false
+  become: yes
+  tasks:
+  - name: Setting Hostname
+    hostname: name=ldap.example.com
+  - name: Configuring network
+    shell: nmcli con mod "System eth1" ipv4.addresses 192.168.55.152/24 ipv4.dns-search example.com ipv4.method manual
+  - name: Reloading Network
+    service: 
+      name: NetworkManager
+      state: restarted
+  - name: Building Host File
+    copy:
+      src: /vagrant/hosts
+      dest: /etc/hosts
+      owner: root
+      group: root
+      mode: '0644'
+      force: yes
+  - name: Installing required packages
+    yum:
+      name:
+        - openldap
+        - openldap-clients
+        - openldap-servers
+        - migrationtools.noarch
+        - nfs-utils
+        - samba
+        - cifs-utils
+        - ntp
+      state: latest
+    tags: yum
+  - name: Enabling booleans
+    seboolean:
+      name: "{{ item }}"
+      state: yes
+      persistent: yes
+    loop:
+      - nfs_export_all_ro
+      - nfs_export_all_rw
+      - use_nfs_home_dirs
+  - name: Ensuring required groups exist
+    group:
+      name: "{{ item.name }}"
+      state: present
+      gid: "{{ item.gid }}"
+    loop:
+      - { name: 'marketing', gid: 5000 }
+      - { name: 'ldapusers', gid: 2000 }
+    tags: user
+  - name: Ensuring required users exist
+    user:
+      name: "{{ item.name }}"
+      state: present
+      groups: "{{ item.groups }}"
+      expires: -1
+      shell: /bin/bash
+      uid: "{{ item.uid }}"
+    loop:
+      - { name: 'bob', groups: 'marketing', uid: 5001 }
+      - { name: 'brian', groups: 'marketing', uid: 5002 }
+      - { name: 'ldapuser1', groups: 'ldapusers', uid: 10001 }
+      - { name: 'ldapuser2', groups: 'ldapusers', uid: 10002 }
+      - { name: 'ldapuser3', groups: 'ldapusers', uid: 10003 }
+    tags: user
+  - name: Setting SMB Share folder
+    blockinfile:
+      dest: /etc/samba/smb.conf
+      block: |
+        [collaboration]
+        comment         = Collaboration group
+        browsable       = yes
+        path            = /smb
+        write list        = @marketing
+      marker: "# {mark} ANSIBLE MANAGED BLOCK"
+    notify:
+      - restart smb
+    tags:
+      - smb
+  - name: Adding necessary context
+    sefcontext:
+      target: "{{ item.name }}"
+      setype: "{{ item.context }}"
+      state: present
+    loop:
+     - { name: "/smb(/.*)?", context: samba_share_t }
+    notify:
+      - apply new context
+  - name: Adding local users to SMB DB
+    shell: printf "redhat\nredhat\n" | smbpasswd -a -s "{{ item }}"
+    loop:
+      - bob
+      - brian
+    tags: test
+  - name: Starting services
+    service:
+      name: "{{ item }}"
+      state: started
+      enabled: yes
+    loop:
+      - firewalld
+      - slapd
+      - rpcbind
+      - nfs
+      - smb
+      - nmb
+      - ntpd
+    tags: firewall
+  - name: Stopping services
+    service:
+      name: "{{ item }}"
+      state: stopped
+      enabled: no
+    loop:
+      - chronyd
+    tags: firewall
+  - name: Enabling Firewall Services
+    firewalld: 
+      service: "{{ item }}"
+      immediate: yes
+      permanent: yes
+      state: enabled
+    loop:
+      - ldap
+      - nfs
+      - rpc-bind
+      - mountd
+      - samba
+      - ntp
+    tags: firewall
+  - name: Changing user's passwd
+    shell: echo {{ item.pass }} | sudo passwd {{ item.user }} --stdin
+    loop:
+      - { user: 'bob', pass: 'redhat' }
+      - { user: 'brian', pass: 'redhat' }
+  - name: Creating required directories
+    file:
+      path: "{{ item }}"
+      state: directory
+      group: marketing
+      mode: '2775'
+    loop:
+      - /nfs
+      - /smb
+  - name: Setting NFS Share folder
+    lineinfile:
+      path: /etc/exports
+      line: /nfs *(rw,no_root_squash)
+      create: yes
+    notify:
+      - exporting new shares
+    tags:
+      - nfs
+  - name: Setting NFS Share homedir
+    lineinfile:
+      path: /etc/exports
+      line: /home *(rw)
+      create: yes
+    notify:
+      - exporting new shares
+    tags:
+      - nfs
+  - name: Copying ldap sample DB
+    copy:
+      src: /usr/share/openldap-servers/DB_CONFIG.example
+      dest: /var/lib/ldap/DB_CONFIG
+      force: yes
+  - name: Fixing permissions
+    file:
+      path: /var/lib/ldap
+      state: directory
+      recurse: yes
+      owner: ldap
+      group: ldap
+      mode: '0755'
+  - name: Adding cosine.ldif
+    command: ldapadd -Y EXTERNAL -H ldapi:/// -D "cn=config" -f /etc/openldap/schema/cosine.ldif
+  - name: Adding nis.ldif
+    command: ldapadd -Y EXTERNAL -H ldapi:/// -D "cn=config" -f /etc/openldap/schema/nis.ldif
+  - name: Adding config.ldif
+    command: ldapmodify -Y EXTERNAL -H ldapi:/// -f /vagrant/ldap/config.ldif
+  - name: Adding structure.ldif
+    command: ldapadd -x -w qwerty -D "cn=Manager,dc=example,dc=com" -f /vagrant/ldap/structure.ldif
+  - name: Adding group.ldif
+    command: ldapadd -x -w qwerty -D "cn=Manager,dc=example,dc=com" -f /vagrant/ldap/group.ldif
+  - name: Adding users1.ldif
+    command: ldapadd -x -w qwerty -D "cn=Manager,dc=example,dc=com" -f /vagrant/ldap/{{ item }}.ldif
+    loop:
+     - user1
+     - user2
+     - user3
+    tags: ldapuser
+  - name: Creating Welcome Message
+    file:
+      path: /etc/profile.d/welcome.sh
+      state: touch
+      mode: 0755
+  - name: Building Welcome Message then rebooting
+    blockinfile:
+      dest: /etc/profile.d/welcome.sh
+      block: |
+         #!/bin/bash
+         #
+         echo -e '
+         #          _     _        _        _         _           _          _   _        _              
+         #         / /\  /\ \     /\_\     / /\      /\ \        /\ \       /\_\/\_\ _   / /\            
+         #        / /  \ \ \ \   / / /    / /  \     \_\ \      /  \ \     / / / / //\_\/ /  \           
+         #       / / /\ \_\ \ \_/ / /    / / /\ \__  /\__ \    / /\ \ \   /\ \/ \ \/ / /_/ /\ \          
+         #      / / /\ \___\ \___/ /    / / /\ \___\/ /_ \ \  / / /\ \_\ /  \____\__/ /\_\/\ \ \         
+         #      \ \ \ \/___/\ \ \_/     \ \ \ \/___/ / /\ \ \/ /_/_ \/_// /\/________/      \ \ \        
+         #       \ \ \       \ \ \       \ \ \    / / /  \/_/ /____/\  / / /\/_// / /        \ \ \       
+         #   _    \ \ \       \ \ \  _    \ \ \  / / /     / /\____\/ / / /    / / /          \ \ \      
+         #  /_/\__/ / /        \ \ \/_/\__/ / / / / /     / / /______/ / /    / / /          __\ \ \___  
+         #  \ \/___/ /          \ \_\ \/___/ / /_/ /     / / /_______\/_/    / / /          /___\_\/__/\ 
+         #   \_____\/            \/_/\_____\/  \_\/      \/__________/       \/_/           \_________\/ 
+         #                                                                                               
+         '"#
+         # You are logged into \"`hostname`\" as the \"`whoami`\" account.
+         # This system is running `cat /etc/redhat-release`
+         #
+         # For root - use \`sudo\` or \`sudo su -\`
+         #
+         "
+  - name: Adjusting Services and Rebooting
+    selinux:
+      policy: targeted
+      state: enforcing
+    tags: selinux
+  handlers:
+  - name: Exporing NFS shares
+    command: exportfs -r
+    listen: "exporting new shares"
+  - name: Apply new SELinux file context to filesystem
+    command: restorecon -irv /smb
+    listen: "apply new context"
+  - name: Restart Samba services
+    service:
+      name: smb
+      state: restarted
+    listen:
+      - "restart smb"
+
+
+      

@@ -1,0 +1,10 @@
+[repo]
+repo.example.com ansible_host=192.168.55.149 ansible_user=vagrant ansible_ssh_pass=vagrant ansible_python_interpreter=/usr/bin/python3
+[server1]
+server1.example.com ansible_host=192.168.55.150 ansible_user=vagrant ansible_ssh_pass=vagrant ansible_python_interpreter=/usr/bin/python3
+[server2]
+server2.example.com ansible_host=192.168.55.151 ansible_user=vagrant ansible_ssh_pass=vagrant ansible_python_interpreter=/usr/bin/python3
+[ldap]
+ldap.example.com ansible_host=192.168.55.152 ansible_user=vagrant ansible_ssh_pass=vagrant ansible_python_interpreter=/usr/bin/python2
+[ldapclient8]
+ldapclient8.example.com ansible_host=192.168.55.171 ansible_user=vagrant ansible_ssh_pass=vagrant ansible_python_interpreter=/usr/bin/python3

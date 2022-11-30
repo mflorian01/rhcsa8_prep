@@ -1,0 +1,23 @@
+---
+- name: Creating Welcome Message
+  hosts: server1
+  strategy: free
+  gather_facts: False
+  become: true
+  tasks:
+  - name: Welcome to the RHCSA 8 Study/Test Environment!
+    debug:
+      msg:
+        - ' The repo server, Server 1, and Server 2 have been set up successfully!'
+        - '------------------------------------------------------------------------'
+        - ' Server 1 is rebooting.  If you are unable to access it right away,'
+        - ' wait a couple moments, then try again.'
+        - '------------------------------------------------------------------------'
+        - ' Accessing The Systems:'
+        - '- Server 1 - 192.168.55.150'
+        - '- Server 2 - 192.168.55.151'
+        - '- Username/Password - vagrant/vagrant or root/password'
+        - '- Access example - `ssh root@192.168.55.150` or `vagrant ssh system1`'
+        - ' -----------------------------------------------------------------------'
+        - '- Two additional interfaces and drives are on Server 2.'
+        - '- Happy Studying!'

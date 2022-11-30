@@ -1,0 +1,16 @@
+dn: uid=ldapuser1,ou=People,dc=example,dc=com
+uid: ldapuser1
+cn: ldapuser1
+objectClass: account
+objectClass: posixAccount
+objectClass: top
+objectClass: shadowAccount
+userPassword: {SSHA}CuqLMsgrQBAUiNifCe9rJbhWova6xRRo
+shadowLastChange: 19314
+shadowMin: 0
+shadowMax: 99999
+shadowWarning: 7
+loginShell: /bin/bash
+uidNumber: 10001
+gidNumber: 2000
+homeDirectory: /nfshome/ldapuser1

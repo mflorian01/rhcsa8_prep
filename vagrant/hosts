@@ -1,0 +1,11 @@
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+:1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+
+192.168.55.149 repo.example.com repo
+192.168.55.150 server1.example.com server1
+192.168.55.151 server2.example.com server2
+192.168.55.152 ldap.example.com ldap
+192.168.55.152 nfs.example.com nfs
+192.168.55.152 samba.example.com samba
+192.168.55.152 ntp.example.com ntp
+192.168.55.171 ldapclient8.example.com ldapclient8

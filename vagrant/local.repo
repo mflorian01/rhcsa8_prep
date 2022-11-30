@@ -1,0 +1,11 @@
+[baseOS]
+name=RHEL8 BaseOS
+baseurl=http://repo.example.com/BaseOS
+gpgcheck=no
+enabled=1
+
+[AppStream]
+name=RHEL8 AppStream
+baseurl=http://repo.example.com/AppStream
+gpgcheck=no
+enabled=1
