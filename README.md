@@ -17,7 +17,7 @@ _Gatekeeper will block virtualbox from installing. All you have to do is go into
 
 ##### Once the above software is installed. Do the following if you're running the environment on Mac:
 1. Create a separate `~/bin` directory and `cd` to it.  (The directory doesn't have to be ~/bin, it can be anything you want.)
-2. Clone the environment repo to it with `git clone https://github.com/mflorian01/rhcsa_prep.git`
+2. Clone the environment repo to it with `git clone https://github.com/mflorian01/rhcsa8_prep.git`
 3. Change to the `rhcsa8env` directory that is now in your `~/bin` directory.
 4. Run `vagrant up` to deploy the environment (If the environment has a designated repo VM it will take the longest to deploy the first time only, this is because the repo system has all the packages available to the base release but will be quicker on subsequent deployments.)
 
@@ -38,7 +38,7 @@ systemctl stop packagekit; dnf -y install https://dl.fedoraproject.org/pub/epel/
 
 ##### Once the above software is installed. Do the following if you're running the environment on Linux:
 1. Create a separate `~/bin` directory and `cd` to it.  (The directory doesn't have to be ~/bin, it can be anything you want.)
-2. Clone the environment repo to it with `git clone https://github.com/mflorian01/rhcsa_prep.git`
+2. Clone the environment repo to it with `git clone https://github.com/mflorian01/rhcsa8_prep.git`
 3. Change to the `rhcsa8env` directory that is now in your `~/bin` directory.
 4. Run `vagrant up` to deploy the environment (If the environment has a designated repo VM it will take the longest to deploy the first time only, this is because the repo system has all the packages available to the base release but will be quicker on subsequent deployments.)
 
@@ -54,7 +54,7 @@ dnf -y install wget git binutils gcc make patch libgomp glibc-headers glibc-deve
 
 ##### Once the above software is installed. Do the following if you're running the environment on Windows:
 1. Create a separate `~/bin` directory and `cd` to it using the same PowerShell/Terminal as Administrator/Root.  (The directory doesn't have to be ~/bin, it can be anything you want.)
-2. Use your browser of choice and navigate to https://github.com/mflorian01/rhcsa_prep, press the green “Clone or download” button then the “Download ZIP” button. Or use Github Desktop (See below).
+2. Use your browser of choice and navigate to https://github.com/mflorian01/rhcsa8_prep, press the green “Clone or download” button then the “Download ZIP” button. Or use Github Desktop (See below).
 3. Once downloaded, unzip the file and move it to the directory you created earlier, `~/bin` in the above example.
 4. Use PowerShell/Terminal as Administrator/Root again and cd to the `~/bin/rhcsa8env` directory then run `vagrant up` to deploy the environment. (If the environment has a designated repo VM it will take the longest to deploy the first time only, this is because the repo system has all the packages available to the base release but will be quicker on subsequent deployments.)
 
@@ -71,7 +71,7 @@ sudo snap install ruby ; sudo apt install ruby-bundler git -y; wget -c https://r
 
 ##### Once the above software is installed. Do the following if you're running the environment on Linux:
 1. Create a separate `~/bin` directory and `cd` to it.  (The directory doesn't have to be ~/bin, it can be anything you want.)
-2. Clone the environment repo to it with `git clone https://github.com/mflorian01/rhcsa_prep.git`
+2. Clone the environment repo to it with `git clone https://github.com/mflorian01/rhcsa8_prep.git`
 3. Change to the `rhcsa8env` directory that is now in your `~/bin` directory.
 4. Run `vagrant up` to deploy the environment (If the environment has a designated repo VM it will take the longest to deploy the first time only, this is because the repo system has all the packages available to the base release but will be quicker on subsequent deployments.)
 
@@ -83,7 +83,7 @@ _Now the deployment should be up and running!_
 _NOTE this requires a free Github account_
 1. Navigate to https://desktop.github.com/ and download Github Desktop.
 2. Create or sign in to your account.
-3. Click "Clone a repository from the Internet" and enter "mflorian01/rhcsa_prep" and choose a location then "Clone".
+3. Click "Clone a repository from the Internet" and enter "mflorian01/rhcsa8_prep" and choose a location then "Clone".
 4. You are also able to easily pull changes when they're made available.
 
 ## Notable commands to control the environment:
